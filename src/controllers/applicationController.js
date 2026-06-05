@@ -55,6 +55,13 @@ const createApplication = async (req, res) => {
             [userId, company, role, status || 'applied', notes, applied_at]
         );
 
+        const newApp = result.rows[0];
+
+        await pool.query(
+            'INSERT INTO status_history (application_id, old_status, new_status) VALUES ($1, $2, $3)',
+            [newApp.id, null, newApp.status]
+        );
+
         await redis.del(CACHE_KEY(userId));
 
         res.status(201).json({ message: 'Application added', data: result.rows[0] });
@@ -69,6 +76,18 @@ const updateApplication = async (req, res) => {
     const { company, role, status, notes, applied_at } = req.body;
 
     try {
+        // fetch BEFORE update
+        const current = await pool.query(
+            'SELECT * FROM applications WHERE id = $1 AND user_id = $2',
+            [id, userId]
+        );
+
+        if (current.rows.length === 0) {
+            return res.status(404).json({ message: 'Application not found' });
+        }
+
+        const oldStatus = current.rows[0].status;
+
         const result = await pool.query(
             `UPDATE applications 
        SET company = COALESCE($1, company),
@@ -81,8 +100,11 @@ const updateApplication = async (req, res) => {
             [company, role, status, notes, applied_at, id, userId]
         );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: 'Application not found' });
+        if (status && status !== oldStatus) {
+            await pool.query(
+                'INSERT INTO status_history (application_id, old_status, new_status) VALUES ($1, $2, $3)',
+                [id, oldStatus, status]
+            );
         }
 
         await redis.del(CACHE_KEY(userId));
@@ -115,10 +137,36 @@ const deleteApplication = async (req, res) => {
     }
 };
 
+const getStatusHistory = async (req, res) => {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    try {
+        const app = await pool.query(
+            'SELECT * FROM applications WHERE id = $1 AND user_id = $2',
+            [id, userId]
+        );
+
+        if (app.rows.length === 0) {
+            return res.status(404).json({ message: 'Application not found' });
+        }
+
+        const history = await pool.query(
+            'SELECT * FROM status_history WHERE application_id = $1 ORDER BY changed_at ASC',
+            [id]
+        );
+
+        res.json({ application_id: id, history: history.rows });
+    } catch (err) {
+        res.status(500).json({ message: 'Server error', error: err.message });
+    }
+};
+
 module.exports = {
     getAllApplications,
     getApplicationById,
     createApplication,
     updateApplication,
-    deleteApplication
+    deleteApplication,
+    getStatusHistory
 };

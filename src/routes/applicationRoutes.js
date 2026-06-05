@@ -6,13 +6,16 @@ const {
     getApplicationById,
     createApplication,
     updateApplication,
-    deleteApplication
+    deleteApplication,
+    getStatusHistory
 } = require('../controllers/applicationController');
+const rateLimiter = require('../middleware/rateLimiter');
 
-router.get('/', auth, getAllApplications);
-router.get('/:id', auth, getApplicationById);
-router.post('/', auth, createApplication);
-router.put('/:id', auth, updateApplication);
-router.delete('/:id', auth, deleteApplication);
+router.get('/', auth, rateLimiter, getAllApplications);
+router.get('/:id', auth, rateLimiter, getApplicationById);
+router.get('/:id/history', auth, rateLimiter, getStatusHistory);
+router.post('/', auth, rateLimiter, createApplication);
+router.put('/:id', auth, rateLimiter, updateApplication);
+router.delete('/:id', auth, rateLimiter, deleteApplication);
 
 module.exports = router;
