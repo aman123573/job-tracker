@@ -5,21 +5,64 @@ const CACHE_KEY = (userId) => `applications:${userId}`;
 
 const getAllApplications = async (req, res) => {
     const userId = req.user.id;
+    const { status, search, page = 1, limit = 10 } = req.query;
+
+    const offset = (page - 1) * limit;
+
+    // build cache key based on query params
+    const cacheKey = `applications:${userId}:${status || 'all'}:${search || ''}:${page}:${limit}`;
 
     try {
-        const cached = await redis.get(CACHE_KEY(userId));
+        const cached = await redis.get(cacheKey);
         if (cached) {
-            return res.json({ source: 'cache', data: JSON.parse(cached) });
+            return res.json({ source: 'cache', ...JSON.parse(cached) });
         }
 
+        // build query dynamically
+        let conditions = ['user_id = $1'];
+        let values = [userId];
+        let index = 2;
+
+        if (status) {
+            conditions.push(`status = $${index}`);
+            values.push(status);
+            index++;
+        }
+
+        if (search) {
+            conditions.push(`(company ILIKE $${index} OR role ILIKE $${index})`);
+            values.push(`%${search}%`);
+            index++;
+        }
+
+        const whereClause = conditions.join(' AND ');
+
+        // get total count
+        const countResult = await pool.query(
+            `SELECT COUNT(*) FROM applications WHERE ${whereClause}`,
+            values
+        );
+        const total = parseInt(countResult.rows[0].count);
+
+        // get paginated results
         const result = await pool.query(
-            'SELECT * FROM applications WHERE user_id = $1 ORDER BY created_at DESC',
-            [userId]
+            `SELECT * FROM applications WHERE ${whereClause} ORDER BY created_at DESC LIMIT $${index} OFFSET $${index + 1}`,
+            [...values, limit, offset]
         );
 
-        await redis.set(CACHE_KEY(userId), JSON.stringify(result.rows), 'EX', 60);
+        const payload = {
+            data: result.rows,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / limit),
+            }
+        };
 
-        res.json({ source: 'db', data: result.rows });
+        await redis.set(cacheKey, JSON.stringify(payload), 'EX', 60);
+
+        res.json({ source: 'db', ...payload });
     } catch (err) {
         res.status(500).json({ message: 'Server error', error: err.message });
     }

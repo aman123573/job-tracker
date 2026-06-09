@@ -3,7 +3,7 @@ const redis = require('../config/redis');
 const rateLimiter = async (req, res, next) => {
     const userId = req.user.id;
     const key = `rate_limit:${userId}`;
-    const LIMIT = 10;
+    const LIMIT = 100;
     const WINDOW = 60; // 60 seconds
 
     try {
