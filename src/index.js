@@ -9,7 +9,8 @@ const applicationRoutes = require('./routes/applicationRoutes');
 const app = express();
 
 app.use(express.json());
-app.use(cors({ origin: 'http://localhost:5173' }));
+// app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(cors({ origin: '*' }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/applications', applicationRoutes);
